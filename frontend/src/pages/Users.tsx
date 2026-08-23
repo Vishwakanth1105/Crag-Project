@@ -58,8 +58,8 @@ export function Users() {
   const usersQuery = useQuery({
     queryKey: ['admin-users'],
     queryFn: async () => {
-      const { data } = await api.get<AdminUserRow[]>('/admin/users')
-      return data
+      const { data } = await api.get<{ items: AdminUserRow[] }>('/admin/users')
+      return data.items
     },
     retry: false,
   })

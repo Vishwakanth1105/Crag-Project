@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn, formatDate } from '@/lib/utils'
 import type { Conversation, DocumentRecord } from '@/lib/types'
+import { AdminDashboard } from '@/pages/AdminDashboard'
 
 const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning'> = {
   ready: 'success',
@@ -26,6 +27,16 @@ const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'o
 }
 
 export function Dashboard() {
+  const { user } = useAuth()
+
+  if (user?.role === 'admin') {
+    return <AdminDashboard />
+  }
+
+  return <UserDashboard />
+}
+
+function UserDashboard() {
   const { user } = useAuth()
 
   const documents = useQuery({
