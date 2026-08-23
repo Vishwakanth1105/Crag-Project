@@ -3,15 +3,15 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://REPLACE-WITH-YOUR-PC.tailnet-name.ts.net/api/:path*"
+      "destination": "https://vishwalucifer.tailbe194a.ts.net/api/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://REPLACE-WITH-YOUR-PC.tailnet-name.ts.net/health"
+      "destination": "https://vishwalucifer.tailbe194a.ts.net/health"
     },
     {
       "source": "/ready",
-      "destination": "https://REPLACE-WITH-YOUR-PC.tailnet-name.ts.net/ready"
+      "destination": "https://vishwalucifer.tailbe194a.ts.net/ready"
     },
     {
       "source": "/:path*",
