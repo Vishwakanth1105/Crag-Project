@@ -7,6 +7,8 @@ import {
   User as UserIcon,
   Server,
   Sparkles,
+  LifeBuoy,
+  Users,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -45,12 +47,23 @@ function initials(name: string): string {
 export function Layout() {
   const { user, logout } = useAuth()
 
+  const isAdmin = user?.role === 'admin'
+
   const navItems = [
     { to: '/dashboard', label: 'Dashboard', icon: Gauge },
-    { to: '/chat', label: 'Chat', icon: MessageSquare },
-    { to: '/documents', label: 'Documents', icon: FileText },
-    ...(user?.role === 'admin'
-      ? [{ to: '/system', label: 'System', icon: Server }]
+    // Admins manage the platform rather than use the end-user workspace.
+    ...(isAdmin
+      ? []
+      : [
+          { to: '/chat', label: 'Chat', icon: MessageSquare },
+          { to: '/documents', label: 'Documents', icon: FileText },
+        ]),
+    { to: '/support', label: 'Support', icon: LifeBuoy },
+    ...(isAdmin
+      ? [
+          { to: '/users', label: 'Users', icon: Users },
+          { to: '/system', label: 'System', icon: Server },
+        ]
       : []),
   ]
 

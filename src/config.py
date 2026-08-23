@@ -56,6 +56,12 @@ class Settings(BaseSettings):
         description="Comma-separated allowed origins; empty means same-origin only.",
     )
 
+    # Transactional email (Brevo HTTP API). When BREVO_API_KEY is empty the
+    # sender falls back to logging the message instead of delivering it.
+    brevo_api_key: str | None = Field(default=None, alias="BREVO_API_KEY")
+    brevo_from_email: str = Field(default="", alias="BREVO_FROM_EMAIL")
+    frontend_url: str = Field(default="http://localhost:5173", alias="FRONTEND_URL")
+
     llm_provider: str = Field(default="local", alias="LLM_PROVIDER")
 
     ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")

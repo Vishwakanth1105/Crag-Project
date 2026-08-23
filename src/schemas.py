@@ -1,7 +1,7 @@
 """Stable API and internal data contracts."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -164,3 +164,74 @@ class SystemStats(BaseModel):
 class ReadinessResponse(BaseModel):
     status: str
     dependencies: list[DependencyStatus]
+
+
+class DetailResponse(BaseModel):
+    message: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=16, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class SupportMessageOut(BaseModel):
+    id: int
+    sender_role: str
+    content: str
+    created_at: datetime
+
+
+class SupportThreadOut(BaseModel):
+    id: int
+    subject: str
+    status: str
+    user_email: str | None = None
+    user_full_name: str | None = None
+    messages: list[SupportMessageOut] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class SupportThreadListResponse(BaseModel):
+    items: list[SupportThreadOut]
+
+
+class CreateSupportThreadRequest(BaseModel):
+    subject: str = Field(min_length=3, max_length=200)
+    message: str = Field(min_length=1, max_length=4000)
+
+
+class SupportReplyRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class SupportStatusUpdateRequest(BaseModel):
+    status: Literal["open", "pending", "resolved"]
+
+
+class RecentConversationItem(BaseModel):
+    id: int
+    title: str
+    message_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminUserDetailResponse(BaseModel):
+    profile: AdminUserResponse
+    document_count: int
+    conversation_count: int
+    message_count: int
+    query_log_count: int
+    storage_bytes: int
+    recent_documents: list[DocumentResponse] = Field(default_factory=list)
+    recent_conversations: list[RecentConversationItem] = Field(default_factory=list)
+
+
+class AdminUserStatusUpdateRequest(BaseModel):
+    is_active: bool

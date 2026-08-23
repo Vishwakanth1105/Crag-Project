@@ -91,6 +91,14 @@ export function Login() {
                 <p className="text-destructive text-sm">{errors.password.message}</p>
               )}
             </div>
+            <div className="flex justify-end">
+              <Link
+                to="/forgot-password"
+                className="text-muted-foreground text-sm underline-offset-4 hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
             <Button
               type="submit"
               className="w-full shadow-lg shadow-indigo-600/25"
