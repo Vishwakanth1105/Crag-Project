@@ -66,6 +66,43 @@ tailscale funnel status          # should list https→8000
 
 - Disable PC sleep during the demo: Settings → System → Power.
 - Keep `tailscale.exe` running in the tray.
+- **Sessions expire after 8 hours** (`SESSION_TTL_HOURS` in `.env`) — always
+  log in fresh at the start; don't rely on yesterday's browser session.
+- Quick admin sanity checks before going live: open **Users** (table loads),
+  open **Support** (inbox loads), Dashboard shows platform stats.
+
+## Suggested demo script (admin features)
+
+1. Log in as an admin → land on the **Admin console** (platform stats,
+   dependency health).
+2. In a second browser/incognito window, register a normal user and open a
+   ticket under **Support** ("Upload fails" or similar).
+3. Back as admin: **Support** inbox shows the new ticket with the user's
+   email → reply (ticket flips to *pending*) → **Resolve**.
+4. Show the user window receiving the reply via live polling.
+5. **Users** page: click the demo user to show their activity (conversations,
+   messages), then Ban → show them being locked out on login attempt → Unban.
+6. Switch `.env` to `LLM_PROVIDER=gemini` for snappy chat answers if desired.
+
+## Email delivery (Brevo) — one-time setup
+
+Password-reset emails are only logged to the api container until Brevo is
+configured:
+
+1. Sign up free at https://www.brevo.com (300 emails/day on the free plan).
+2. **Senders, Domains & Dedicated IPs** → add and verify your sender address.
+3. **SMTP & API → API Keys** → generate a key.
+4. Add to `.env`, then recreate the api container:
+
+   ```powershell
+   # .env
+   BREVO_API_KEY=xkeysib-...
+   BREVO_FROM_EMAIL=your-verified-sender@example.com
+
+   docker compose up -d --build api worker
+   ```
+
+5. Test: "Forgot password?" → email arrives with a working reset link.
 
 ## Speed tip for demo day
 
@@ -82,3 +119,7 @@ Gemini for the day (`LLM_PROVIDER=gemini`, key already present), run
 | Login works locally but not via Vercel | Hostname in `frontend/vercel.json` stale → update + push |
 | First chat reply very slow | Expected cold-start of Ollama model; warm up with one query before going live |
 | Changed WiFi/network | Tailscale reconnects automatically; nothing to redo |
+| Reset email never arrives | `BREVO_API_KEY` not set (link only logged) → see Brevo setup above |
+| UI looks stale after a deploy | Hard refresh the browser: `Ctrl + Shift + R` |
+| Suddenly logged out | Sessions expire after 8 hours by design — log in again |
+| Page goes all white | A render bug — an error boundary now shows the message; report it and reload |
