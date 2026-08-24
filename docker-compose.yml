@@ -180,6 +180,16 @@ services:
       api:
         condition: service_healthy
 
+  adminer:
+    image: adminer:4
+    container_name: agentic-graph-rag-adminer
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+
 volumes:
   qdrant_storage:
   neo4j_data:

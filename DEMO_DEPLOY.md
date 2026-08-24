@@ -104,6 +104,33 @@ configured:
 
 5. Test: "Forgot password?" → email arrives with a working reset link.
 
+## Viewing the live database during the demo
+
+**Browser (easiest):** open http://localhost:8081 — Adminer, a web GUI for the
+MySQL database that ships with the compose stack. Log in with:
+
+| Field    | Value                                  |
+| -------- | -------------------------------------- |
+| System   | MySQL                                  |
+| Server   | `mysql`                                |
+| User     | `rag` (or `$MYSQL_USER` from `.env`)   |
+| Password | value of `MYSQL_PASSWORD` in `.env`    |
+| Database | `rag`                                  |
+
+Then click any table (`users`, `conversations`, `support_threads`, …) to see
+live rows. Register a user on stage and refresh — the row appears.
+
+**Full GUI app:** MySQL Workbench / DBeaver → host `127.0.0.1`, port
+**3307** (host-mapped), user `rag`, password from `.env`, schema `rag`.
+
+**Portable copy of the whole DB:**
+
+```powershell
+docker compose exec -T mysql sh -c 'mysqldump -u$MYSQL_USER -p$MYSQL_PASSWORD --databases $MYSQL_DATABASE --add-drop-database --single-transaction' > agentic-rag-full-database.sql
+```
+
+Re-import anywhere with `mysql -uroot -p < agentic-rag-full-database.sql`.
+
 ## Speed tip for demo day
 
 Local Ollama (`LLM_PROVIDER=local`) is free but takes ~5–20 s per chat reply,

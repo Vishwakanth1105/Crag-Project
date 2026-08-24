@@ -140,6 +140,7 @@ This starts (all healthy-gated):
 | frontend  | `:8080`                    | Web UI (nginx + SPA fallback)    |
 | api       | `:8000`                    | FastAPI backend                  |
 | worker    | —                          | Background ingestion             |
+| adminer   | `:8081`                    | Browser GUI for the MySQL DB     |
 | ollama    | internal `:11434`          | Local LLM inference (gemma2:2b)  |
 | mysql     | `:3307` (host)             | Application database             |
 | minio     | `:9000` / `:9001` (console) | Object storage                  |
