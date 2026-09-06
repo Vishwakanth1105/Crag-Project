@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import io
+import time
 import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pypdf import PdfReader
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from src.auth.deps import get_current_user
@@ -17,12 +19,15 @@ from src.db.models import Document, IngestionJob, User
 from src.db.session import get_db
 from src.ingestion import neo4j_indexer, qdrant_indexer
 from src.ingestion.parser import SUPPORTED_EXTENSIONS
+from src.logging_config import get_logger
 from src.schemas import (
     DocumentContentResponse,
     DocumentListResponse,
     DocumentResponse,
 )
 from src.storage.minio_client import StorageClient
+
+logger = get_logger("documents")
 
 router = APIRouter(prefix="/documents")
 
@@ -170,25 +175,53 @@ def delete_document(
     settings = get_settings()
     document = _get_owned_document(db, document_id, user)
 
+    # The database row is the source of truth, so remove it FIRST with a short,
+    # retried transaction. Retrying avoids MySQL lock-wait timeouts (error 1205)
+    # when the worker still holds a row lock while indexing the same document.
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            db.query(IngestionJob).filter(IngestionJob.document_id == document.id).delete()
+            db.delete(document)
+            db.commit()
+            last_error = None
+            break
+        except OperationalError as exc:
+            db.rollback()
+            last_error = exc
+            time.sleep(0.5 * (attempt + 1))
+    if last_error is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "The document is being processed and could not be deleted. "
+                "Please wait a moment and try again."
+            ),
+        )
+
+    # Store cleanups are best-effort: the document is already gone, so a failed
+    # cleanup is a logged warning rather than an error the UI reports as a lie.
     errors: list[str] = []
     try:
         qdrant_indexer.QdrantIndexer(settings).delete_by_document(document.id)
     except Exception as exc:  # pragma: no cover - external service specific
         errors.append(f"qdrant: {type(exc).__name__}")
+        logger.warning("qdrant cleanup failed for %s", document.id, exc_info=True)
     try:
         neo4j_indexer.Neo4jIndexer(settings).delete_by_document(document.id)
     except Exception as exc:  # pragma: no cover - external service specific
         errors.append(f"neo4j: {type(exc).__name__}")
+        logger.warning("neo4j cleanup failed for %s", document.id, exc_info=True)
     try:
         StorageClient(settings).delete_object(document.storage_path)
     except Exception as exc:  # pragma: no cover - external service specific
         errors.append(f"storage: {type(exc).__name__}")
+        logger.warning("storage cleanup failed for %s", document.id, exc_info=True)
 
-    db.query(IngestionJob).filter(IngestionJob.document_id == document.id).delete()
-    db.delete(document)
-    db.commit()
-    if errors:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Document deleted with partial store cleanup: {', '.join(errors)}",
+    if errors:  # pragma: no cover - depends on external services
+        logger.warning(
+            "document %s deleted with partial cleanup: %s",
+            document.id,
+            ", ".join(errors),
         )
+    return None

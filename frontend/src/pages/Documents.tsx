@@ -88,8 +88,14 @@ export function Documents() {
     mutationFn: async (id: string) => {
       await api.delete(`/documents/${id}`)
     },
-    onSuccess: () => {
+    // Refetch the list after success AND failure: a document may be deleted
+    // server-side even when the request errors, and the stale list should never
+    // keep showing a deleted row.
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['documents'] })
+      queryClient.invalidateQueries({ queryKey: ['system'] })
+    },
+    onSuccess: () => {
       toast.success('Document deleted')
     },
     onError: (err) => {

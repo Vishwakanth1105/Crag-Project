@@ -91,6 +91,28 @@ def process_job(db: Session, job: IngestionJob, settings: Settings, storage: Sto
             parsed.parent_documents
         )
 
+        # End the long-lived read snapshot (InnoDB REPEATABLE READ would
+        # otherwise hide a concurrent DELETE) so the re-check below sees the
+        # document's true current state. No rows were written yet, so committing
+        # here loses nothing.
+        db.commit()
+
+        # The document may have been deleted while we were indexing. Never
+        # resurrect its rows; instead drop the vectors/relationships we just
+        # wrote so no orphaned data survives.
+        if db.query(Document).filter(Document.id == document.id).count() == 0:
+            for cleanup in (
+                lambda: qdrant_indexer.QdrantIndexer(settings).delete_by_document(document.id),
+                lambda: neo4j_indexer.Neo4jIndexer(settings).delete_by_document(document.id),
+            ):
+                try:
+                    cleanup()
+                except Exception:  # pragma: no cover - best-effort rollback
+                    logger.warning("orphan cleanup failed for %s", document.id, exc_info=True)
+            job.status = "failed"
+            job.error = "document missing"
+            return
+
         document.status = "ready"
         document.error = None
         document.content_hash = hashlib.sha256(data).hexdigest()
@@ -128,6 +150,12 @@ def drain(settings: Settings, storage: StorageClient) -> int:
             job.status = "running"
             job.started_at = datetime.now(UTC)
             db.flush()
+            # Release the row locks BEFORE the heavy ingestion work: parsing,
+            # embedding, and Neo4j extraction can take 30s+ and must not hold
+            # the document/job rows open (that blocks user-facing deletes with
+            # MySQL lock-wait timeouts). Each later write starts a fresh, short
+            # transaction instead.
+            db.commit()
             process_job(db, job, settings, storage)
             db.commit()
             processed += 1

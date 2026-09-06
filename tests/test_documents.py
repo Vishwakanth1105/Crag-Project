@@ -204,6 +204,112 @@ def test_worker_marks_job_failed_on_parse_error(
     session.close()
 
 
+def test_worker_does_not_resurrect_deleted_document(
+    client: TestClient,
+    monkeypatch,
+    db_session_factory,  # noqa: ANN001
+) -> None:
+    storage = FakeStorage()
+    monkeypatch.setattr("src.worker.StorageClient", lambda settings: storage)
+
+    from src.config import get_settings
+    from src.worker import drain
+
+    session = db_session_factory()
+    from src.db.models import User
+
+    user = User(email="deleted@example.com", password_hash="x", role="user")
+    session.add(user)
+    session.commit()
+    document = Document(
+        id="doc-gone",
+        user_id=user.id,
+        file_name="sample.txt",
+        storage_path="documents/1/doc-gone",
+    )
+    session.add(document)
+    session.flush()
+    session.add(IngestionJob(document_id=document.id, user_id=user.id, status="queued"))
+    session.commit()
+    storage.objects["documents/1/doc-gone"] = b"Jupiter has many moons."
+
+    # Delete the document (ORM cascade removes its ingestion jobs too) before
+    # the worker claims the job. The worker must never resurrect the row.
+    session.delete(document)
+    session.commit()
+
+    processed = drain(get_settings(), storage)
+    assert processed == 0
+
+    assert session.query(Document).filter(Document.id == "doc-gone").first() is None
+    assert (
+        session.query(IngestionJob).filter(IngestionJob.document_id == "doc-gone").first() is None
+    )
+    session.close()
+
+
+def test_worker_cleans_up_stores_for_document_deleted_while_indexing(
+    client: TestClient,
+    monkeypatch,
+    db_session_factory,  # noqa: ANN001
+) -> None:
+    qdrant = FakeQdrant()
+    neo4j = FakeNeo4j()
+    monkeypatch.setattr("src.ingestion.qdrant_indexer.QdrantIndexer", lambda settings: qdrant)
+    monkeypatch.setattr("src.ingestion.neo4j_indexer.Neo4jIndexer", lambda settings: neo4j)
+    monkeypatch.setattr("src.worker.StorageClient", FakeStorage)
+
+    from src.config import get_settings
+    from src.worker import drain
+
+    session = db_session_factory()
+    from src.db.models import User
+
+    user = User(email="mid@example.com", password_hash="x", role="user")
+    session.add(user)
+    session.commit()
+    document = Document(
+        id="doc-gone",
+        user_id=user.id,
+        file_name="sample.txt",
+        storage_path="documents/1/doc-gone",
+    )
+    session.add(document)
+    session.flush()
+    session.add(IngestionJob(document_id=document.id, user_id=user.id, status="queued"))
+    session.commit()
+
+    # Storage wraps each fake download: delete the document row mid-ingestion,
+    # exactly like a DELETE request racing with the indexing worker.
+    storage = FakeStorage()
+    storage.objects["documents/1/doc-gone"] = b"Jupiter has many moons."
+    original_download = storage.download_bytes
+
+    def deleting_download(key: str) -> bytes:
+        deleter = db_session_factory()
+        deleter.query(Document).filter(Document.id == "doc-gone").delete(
+            synchronize_session=False
+        )
+        deleter.commit()
+        deleter.close()
+        return original_download(key)
+
+    storage.download_bytes = deleting_download  # type: ignore[method-assign]
+
+    processed = drain(get_settings(), storage)
+    assert processed == 1
+
+    assert qdrant.deleted == ["doc-gone"]
+    assert neo4j.deleted == ["doc-gone"]
+
+    after = db_session_factory()
+    assert after.query(Document).filter(Document.id == "doc-gone").first() is None
+    job = after.query(IngestionJob).filter(IngestionJob.document_id == "doc-gone").first()
+    assert job.status == "failed"
+    after.close()
+    session.close()
+
+
 def test_document_content_returns_stored_and_fallback_text(
     client: TestClient,
     monkeypatch,
