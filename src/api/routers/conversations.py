@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from src.auth.deps import get_current_user
-from src.db.models import Conversation, Message, User
+from src.db.models import Conversation, Document, Message, User
 from src.db.session import get_db
 from src.schemas import (
     ConversationListResponse,
@@ -28,6 +28,7 @@ def _conversation_response(conversation: Conversation) -> ConversationResponse:
     return ConversationResponse(
         id=conversation.id,
         title=conversation.title,
+        document_id=conversation.document_id,
         created_at=conversation.created_at,
         updated_at=conversation.updated_at,
     )
@@ -61,7 +62,17 @@ def create_conversation(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ConversationResponse:
-    conversation = Conversation(user_id=user.id, title=payload.title)
+    if payload.document_id is not None:
+        document = db.get(Document, payload.document_id)
+        if document is None or document.user_id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+            )
+    conversation = Conversation(
+        user_id=user.id,
+        title=payload.title,
+        document_id=payload.document_id,
+    )
     db.add(conversation)
     db.commit()
     return _conversation_response(conversation)

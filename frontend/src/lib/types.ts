@@ -20,6 +20,7 @@ export interface DocumentRecord {
 export interface Conversation {
   id: number
   title: string
+  document_id?: string | null
   created_at: string
   updated_at: string
 }

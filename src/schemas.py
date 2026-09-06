@@ -83,6 +83,7 @@ class IngestionJobResponse(BaseModel):
 class ConversationResponse(BaseModel):
     id: int
     title: str
+    document_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -93,6 +94,7 @@ class ConversationListResponse(BaseModel):
 
 class CreateConversationRequest(BaseModel):
     title: str = Field(default="New conversation", max_length=255)
+    document_id: str | None = None
 
 
 class UpdateConversationRequest(BaseModel):

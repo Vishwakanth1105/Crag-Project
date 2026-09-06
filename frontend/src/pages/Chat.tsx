@@ -137,15 +137,53 @@ export function Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentContent.data?.text, lastAssistantMessage?.id, documentParam])
 
+  // Only show threads that belong to the pinned document; without a pinned
+  // document, show the general (unscoped) threads.
+  const visibleConversations = useMemo(() => {
+    const all = conversations.data ?? []
+    if (documentParam) return all.filter((c) => c.document_id === documentParam)
+    return all.filter((c) => !c.document_id)
+  }, [conversations.data, documentParam])
+
+  // Auto-create a document-scoped thread when a document is pinned and has
+  // none yet, so each document gets its own fresh conversation.
+  const autoCreatedDoc = useRef<string | null>(null)
   useEffect(() => {
-    if (conversations.data && activeId === null && conversations.data.length > 0) {
-      setActiveId(conversations.data[0].id)
+    if (!documentParam) {
+      autoCreatedDoc.current = null
+      return
     }
-  }, [conversations.data, activeId])
+    if (conversations.isLoading) return
+    const exists = (conversations.data ?? []).some((c) => c.document_id === documentParam)
+    if (!exists && autoCreatedDoc.current !== documentParam) {
+      autoCreatedDoc.current = documentParam
+      createConversation.mutate()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentParam, conversations.data, conversations.isLoading])
+
+  // Keep the active thread pinned to what the user is looking at: the scoped
+  // conversation when a document is open, the most recent thread otherwise.
+  useEffect(() => {
+    if (!conversations.data) return
+    const visible = documentParam
+      ? conversations.data.filter((c) => c.document_id === documentParam)
+      : conversations.data.filter((c) => !c.document_id)
+    if (visible.length === 0) {
+      setActiveId(null)
+      return
+    }
+    if (activeId === null || !visible.some((c) => c.id === activeId)) {
+      setActiveId(visible[0].id)
+    }
+  }, [conversations.data, documentParam, activeId])
 
   const createConversation = useMutation({
     mutationFn: async () => {
-      const { data } = await api.post<Conversation>('/conversations', {})
+      const { data } = await api.post<Conversation>('/conversations', {
+        title: documentParam && pinnedDocument.data ? pinnedDocument.data.file_name : undefined,
+        document_id: documentParam ?? undefined,
+      })
       return data
     },
     onSuccess: (conversation) => {
@@ -222,8 +260,8 @@ export function Chat() {
                 <Skeleton key={i} className="h-10 w-full rounded-lg" />
               ))}
             </div>
-          ) : conversations.data?.length ? (
-            conversations.data.map((conversation) => (
+          ) : visibleConversations.length ? (
+            visibleConversations.map((conversation) => (
               <div
                 key={conversation.id}
                 className={cn(

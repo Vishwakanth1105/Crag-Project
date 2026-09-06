@@ -178,3 +178,77 @@ def test_delete_conversation_cascades_messages(
     session = db_session_factory()
     assert session.query(Message).count() == 0
     session.close()
+
+
+def test_create_conversation_scoped_to_document(
+    client: TestClient,
+    db_session_factory,  # noqa: ANN001
+) -> None:
+    from src.db.models import Document, User
+
+    headers = _register(client, "docscope@example.com")
+    session = db_session_factory()
+    user = session.query(User).filter(User.email == "docscope@example.com").first()
+    session.add(
+        Document(
+            id="doc-scoped",
+            user_id=user.id,
+            file_name="scoped.txt",
+            storage_path="documents/1/doc-scoped",
+        )
+    )
+    session.commit()
+    session.close()
+
+    response = client.post(
+        "/api/v1/conversations",
+        json={"title": "Scoped", "document_id": "doc-scoped"},
+        headers=headers,
+    )
+    assert response.status_code == 201
+    assert response.json()["document_id"] == "doc-scoped"
+
+    listed = client.get("/api/v1/conversations", headers=headers).json()["items"]
+    assert listed[0]["title"] == "Scoped"
+    assert listed[0]["document_id"] == "doc-scoped"
+
+
+def test_create_conversation_rejects_foreign_document(
+    client: TestClient,
+    db_session_factory,  # noqa: ANN001
+) -> None:
+    from fastapi.testclient import TestClient as TC
+
+    from src.api.app import app
+    from src.db.models import Document, User
+
+    alice = _register(client, "alice-doc@example.com")
+    session = db_session_factory()
+    alice_user = session.query(User).filter(User.email == "alice-doc@example.com").first()
+    session.add(
+        Document(
+            id="doc-alice",
+            user_id=alice_user.id,
+            file_name="alice.txt",
+            storage_path="documents/1/doc-alice",
+        )
+    )
+    session.commit()
+    session.close()
+
+    bob_client = TC(app)
+    bob = _register(bob_client, "bob-doc@example.com")
+
+    response = bob_client.post(
+        "/api/v1/conversations",
+        json={"document_id": "doc-alice"},
+        headers=bob,
+    )
+    assert response.status_code == 404
+
+    alice_scoped = client.post(
+        "/api/v1/conversations",
+        json={"document_id": "doc-alice"},
+        headers=alice,
+    )
+    assert alice_scoped.status_code == 201
