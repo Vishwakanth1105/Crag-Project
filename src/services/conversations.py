@@ -56,7 +56,7 @@ def run_conversation_turn(
     db.flush()
 
     started = time.perf_counter()
-    state = run_agent(content)
+    state = run_agent(content, document_id=conversation.document_id)
     latency_ms = int((time.perf_counter() - started) * 1000)
 
     assistant_message = Message(

@@ -7,6 +7,7 @@ import re
 from langchain_core.documents import Document
 from neo4j import GraphDatabase
 from qdrant_client import QdrantClient
+from qdrant_client import models as qdrant_models
 
 from src.config import Settings, get_settings
 from src.exceptions import RetrievalError
@@ -41,14 +42,20 @@ class HybridRetriever:
     def close(self) -> None:
         self.neo4j_driver.close()
 
-    def retrieve(self, query: str, *, trace: list[str] | None = None) -> list[Document]:
+    def retrieve(
+        self,
+        query: str,
+        *,
+        trace: list[str] | None = None,
+        document_id: str | None = None,
+    ) -> list[Document]:
         trace = trace if trace is not None else []
         documents: list[Document] = []
         vector_error: Exception | None = None
         graph_error: Exception | None = None
 
         try:
-            vector_documents = self.vector_search(query)
+            vector_documents = self.vector_search(query, document_id=document_id)
             trace.append(f"vector_search: {len(vector_documents)} results")
             documents.extend(vector_documents)
         except Exception as exc:  # pragma: no cover - external service specific
@@ -56,7 +63,7 @@ class HybridRetriever:
             trace.append(f"vector_search_error: {type(exc).__name__}")
 
         try:
-            graph_documents = self.graph_search(query)
+            graph_documents = self.graph_search(query, document_id=document_id)
             trace.append(f"graph_search: {len(graph_documents)} results")
             documents.extend(graph_documents)
         except Exception as exc:  # pragma: no cover - external service specific
@@ -67,14 +74,25 @@ class HybridRetriever:
             raise RetrievalError("Hybrid retrieval failed to return documents")
         return self._dedupe_documents(documents)
 
-    def vector_search(self, query: str) -> list[Document]:
+    def vector_search(self, query: str, *, document_id: str | None = None) -> list[Document]:
         embeddings = build_embeddings(self.settings)
         query_vector = embeddings.embed_query(query)
+        query_filter = None
+        if document_id:
+            query_filter = qdrant_models.Filter(
+                must=[
+                    qdrant_models.FieldCondition(
+                        key="document_id",
+                        match=qdrant_models.MatchValue(value=document_id),
+                    )
+                ]
+            )
         response = self.qdrant.query_points(
             collection_name=self.settings.qdrant_collection,
             query=query_vector,
             limit=self.settings.vector_top_k,
             with_payload=True,
+            query_filter=query_filter,
         )
         documents: list[Document] = []
         for result in response.points:
@@ -86,14 +104,15 @@ class HybridRetriever:
             documents.append(Document(page_content=text, metadata=metadata))
         return documents
 
-    def graph_search(self, query: str) -> list[Document]:
+    def graph_search(self, query: str, *, document_id: str | None = None) -> list[Document]:
         entities = extract_query_entities(query)
         if not entities:
             return []
-        cypher = """
+        scope_clause = " AND any(r IN relationships(path) WHERE r.document_id = $document_id)"
+        cypher = f"""
         UNWIND $entities AS entity
         MATCH path = (start:Entity)-[*1..2]-(neighbor:Entity)
-        WHERE toLower(start.name) CONTAINS toLower(entity)
+        WHERE toLower(start.name) CONTAINS toLower(entity){scope_clause if document_id else ""}
         WITH path LIMIT $limit
         UNWIND relationships(path) AS rel
         WITH DISTINCT startNode(rel) AS s, type(rel) AS relation, endNode(rel) AS o, rel
@@ -102,9 +121,12 @@ class HybridRetriever:
                coalesce(rel.confidence, 0.5) AS score
         LIMIT $limit
         """
+        parameters: dict = {"entities": entities, "limit": self.settings.graph_top_k}
+        if document_id:
+            parameters["document_id"] = document_id
         documents: list[Document] = []
         with self.neo4j_driver.session() as session:
-            rows = session.run(cypher, entities=entities, limit=self.settings.graph_top_k)
+            rows = session.run(cypher, **parameters)
             for row in rows:
                 subject = row["subject"]
                 relation = row["relation"].replace("_", " ").lower()

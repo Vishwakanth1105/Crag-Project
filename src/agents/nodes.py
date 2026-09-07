@@ -80,7 +80,9 @@ def retrieve(state: AgentState, deps: NodeDependencies) -> AgentState:
     query = state.get("rewritten_query") or state.get("query") or ""
     trace = state.setdefault("retrieval_trace", [])
     try:
-        state["documents"] = deps.retriever.retrieve(query, trace=trace)
+        state["documents"] = deps.retriever.retrieve(
+            query, trace=trace, document_id=state.get("document_id")
+        )
     except Exception as exc:
         state["documents"] = []
         trace.append(f"retrieve_error: {type(exc).__name__}")

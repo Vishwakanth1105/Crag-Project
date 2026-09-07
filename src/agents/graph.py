@@ -67,8 +67,21 @@ def build_agent_graph(
     return builder.compile()
 
 
-def run_agent(query: str, deps: NodeDependencies | None = None) -> dict:
+def run_agent(
+    query: str,
+    deps: NodeDependencies | None = None,
+    *,
+    document_id: str | None = None,
+) -> dict:
     """Run the full CRAG workflow and return the populated agent state."""
     graph = build_agent_graph(deps)
-    result = graph.invoke(AgentState(query=query, retrieval_trace=[], documents=[], errors=[]))
+    result = graph.invoke(
+        AgentState(
+            query=query,
+            document_id=document_id,
+            retrieval_trace=[],
+            documents=[],
+            errors=[],
+        )
+    )
     return dict(result)

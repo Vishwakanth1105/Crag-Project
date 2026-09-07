@@ -8,10 +8,11 @@ from langchain_core.documents import Document
 from src.db.models import Message, QueryLog
 
 
-def _stub_run_agent(query: str) -> dict:
+def _stub_run_agent(query: str, *, document_id: str | None = None) -> dict:
     return {
         "generation": f"Answer about {query}",
         "confidence_score": 0.85,
+        "document_id": document_id,
         "sources": ["sample.md"],
         "web_search_used": False,
         "retry_count": 1,
@@ -211,6 +212,58 @@ def test_create_conversation_scoped_to_document(
     listed = client.get("/api/v1/conversations", headers=headers).json()["items"]
     assert listed[0]["title"] == "Scoped"
     assert listed[0]["document_id"] == "doc-scoped"
+
+
+def test_document_scoped_turn_forwards_document_id_to_agent(
+    client: TestClient,
+    monkeypatch,
+    db_session_factory,  # noqa: ANN001
+) -> None:
+    captured = []
+
+    def _recording_agent(query, *, document_id=None) -> dict:  # noqa: ANN001
+        captured.append((query, document_id))
+        return {"generation": f"Answer about {query}", "confidence_score": 0.5}
+
+    monkeypatch.setattr("src.services.conversations.run_agent", _recording_agent)
+    headers = _register(client, "scoped-agent@example.com")
+    session = db_session_factory()
+    from src.db.models import Document, User
+
+    user = session.query(User).filter(User.email == "scoped-agent@example.com").first()
+    session.add(
+        Document(
+            id="doc-agent",
+            user_id=user.id,
+            file_name="agent.txt",
+            storage_path="documents/1/doc-agent",
+        )
+    )
+    session.commit()
+    session.close()
+
+    conversation_id = _conversation(client, headers, title="Agent scoped")
+    response = client.post(
+        "/api/v1/conversations",
+        json={"title": "Agent scoped", "document_id": "doc-agent"},
+        headers=headers,
+    )
+    scoped_id = response.json()["id"]
+
+    client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        json={"content": "general question"},
+        headers=headers,
+    )
+    client.post(
+        f"/api/v1/conversations/{scoped_id}/messages",
+        json={"content": "document question"},
+        headers=headers,
+    )
+    assert captured == [
+        ("general question", None),
+        ("document question", "doc-agent"),
+    ]
 
 
 def test_create_conversation_rejects_foreign_document(

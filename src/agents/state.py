@@ -9,6 +9,7 @@ from langchain_core.documents import Document
 
 class AgentState(TypedDict, total=False):
     query: str
+    document_id: str | None
     rewritten_query: str | None
     documents: list[Document]
     web_search_needed: bool

@@ -65,7 +65,13 @@ class FakeRetriever:
     def __init__(self, documents: list[Document] | None = None) -> None:
         self._documents = documents or []
 
-    def retrieve(self, query: str, *, trace: list[str] | None = None) -> list[Document]:
+    def retrieve(
+        self,
+        query: str,
+        *,
+        trace: list[str] | None = None,
+        document_id: str | None = None,
+    ) -> list[Document]:
         if trace is not None:
             trace.append(f"fake_retrieve: {len(self._documents)} results")
         return self._documents
