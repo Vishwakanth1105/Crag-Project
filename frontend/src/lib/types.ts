@@ -86,3 +86,47 @@ export interface SystemStats {
   query_logs: number
   dependencies: DependencyStatus[]
 }
+
+export interface AdminDocument extends DocumentRecord {
+  user_id: number
+  owner_email: string
+  owner_full_name: string
+}
+
+export interface AdminConversation {
+  id: number
+  title: string
+  document_id: string | null
+  user_id: number
+  owner_email: string
+  owner_full_name: string
+  message_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface AdminMessage {
+  id: number
+  conversation_id: number
+  conversation_title: string
+  user_id: number
+  owner_email: string
+  role: 'user' | 'assistant'
+  content: string
+  confidence_score: number | null
+  web_search_used: boolean
+  created_at: string
+}
+
+export interface AdminQueryLog {
+  id: number
+  user_id: number
+  owner_email: string
+  query: string
+  answer: string
+  confidence_score: number
+  web_search_used: boolean
+  retry_count: number
+  latency_ms: number
+  created_at: string
+}

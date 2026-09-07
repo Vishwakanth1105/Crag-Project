@@ -135,12 +135,68 @@ class AdminUsersResponse(BaseModel):
     items: list[AdminUserResponse]
 
 
+class AdminDocumentResponse(DocumentResponse):
+    user_id: int
+    owner_email: str
+    owner_full_name: str
+
+
 class AdminDocumentsResponse(BaseModel):
-    items: list[DocumentResponse]
+    items: list[AdminDocumentResponse]
 
 
 class AdminIngestionsResponse(BaseModel):
     items: list[IngestionJobResponse]
+
+
+class AdminConversationItem(BaseModel):
+    id: int
+    title: str
+    document_id: str | None = None
+    user_id: int
+    owner_email: str
+    owner_full_name: str
+    message_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminConversationsResponse(BaseModel):
+    items: list[AdminConversationItem]
+
+
+class AdminMessageItem(BaseModel):
+    id: int
+    conversation_id: int
+    conversation_title: str
+    user_id: int
+    owner_email: str
+    role: str
+    content: str
+    confidence_score: float | None = None
+    web_search_used: bool = False
+    created_at: datetime
+
+
+class AdminMessagesResponse(BaseModel):
+    items: list[AdminMessageItem]
+
+
+class AdminQueryLogItem(BaseModel):
+    id: int
+    user_id: int
+    owner_email: str
+    query: str
+    answer: str
+    confidence_score: float
+    web_search_used: bool = False
+    retry_count: int
+    latency_ms: int
+    created_at: datetime
+
+
+class AdminQueryLogsResponse(BaseModel):
+    items: list[AdminQueryLogItem]
 
 
 class HealthResponse(BaseModel):

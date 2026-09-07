@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { AxiosError } from 'axios'
+import { Link } from 'react-router-dom'
 import {
   ShieldAlert,
   Activity,
@@ -8,6 +9,7 @@ import {
   MessageSquare,
   MessagesSquare,
   ScrollText,
+  ChevronRight,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import {
@@ -23,11 +25,11 @@ import { cn } from '@/lib/utils'
 import type { SystemStats } from '@/lib/types'
 
 const statCards = [
-  { key: 'users', label: 'Users', icon: Users, accent: 'from-indigo-500 to-violet-600' },
-  { key: 'documents', label: 'Documents', icon: FileText, accent: 'from-sky-500 to-cyan-600' },
-  { key: 'conversations', label: 'Conversations', icon: MessageSquare, accent: 'from-fuchsia-500 to-pink-600' },
-  { key: 'messages', label: 'Messages', icon: MessagesSquare, accent: 'from-emerald-500 to-teal-600' },
-  { key: 'query_logs', label: 'Query logs', icon: ScrollText, accent: 'from-amber-500 to-orange-600' },
+  { key: 'users', label: 'Users', icon: Users, to: '/users', accent: 'from-indigo-500 to-violet-600' },
+  { key: 'documents', label: 'Documents', icon: FileText, to: '/system/documents', accent: 'from-sky-500 to-cyan-600' },
+  { key: 'conversations', label: 'Conversations', icon: MessageSquare, to: '/system/conversations', accent: 'from-fuchsia-500 to-pink-600' },
+  { key: 'messages', label: 'Messages', icon: MessagesSquare, to: '/system/messages', accent: 'from-emerald-500 to-teal-600' },
+  { key: 'query_logs', label: 'Query logs', icon: ScrollText, to: '/system/query-logs', accent: 'from-amber-500 to-orange-600' },
 ] as const
 
 export function System() {
@@ -86,10 +88,11 @@ export function System() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        {statCards.map(({ key, label, icon: Icon, accent }) => (
-          <div
+        {statCards.map(({ key, label, icon: Icon, to, accent }) => (
+          <Link
             key={key}
-            className="shadow-card flex items-center gap-4 rounded-2xl border bg-card p-5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-card-hover"
+            to={to}
+            className="shadow-card group flex items-center gap-4 rounded-2xl border bg-card p-5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-card-hover"
           >
             <span
               className={cn(
@@ -99,7 +102,7 @@ export function System() {
             >
               <Icon className="size-5" />
             </span>
-            <div>
+            <div className="flex-1">
               <p className="text-muted-foreground text-sm">{label}</p>
               {system.isLoading ? (
                 <Skeleton className="mt-1 h-7 w-12" />
@@ -109,7 +112,8 @@ export function System() {
                 </p>
               )}
             </div>
-          </div>
+            <ChevronRight className="text-muted-foreground group-hover:text-foreground size-4 transition-transform group-hover:translate-x-0.5" />
+          </Link>
         ))}
       </div>
 

@@ -13,6 +13,10 @@ import { Dashboard } from '@/pages/Dashboard'
 import { Chat } from '@/pages/Chat'
 import { Documents } from '@/pages/Documents'
 import { System } from '@/pages/System'
+import { SystemConversations } from '@/pages/SystemConversations'
+import { SystemDocuments } from '@/pages/SystemDocuments'
+import { SystemMessages } from '@/pages/SystemMessages'
+import { SystemQueryLogs } from '@/pages/SystemQueryLogs'
 import { Users } from '@/pages/Users'
 import { Support } from '@/pages/Support'
 import { Profile } from '@/pages/Profile'
@@ -39,6 +43,10 @@ export default function App() {
                 <Route path="/documents" element={<Documents />} />
                 <Route path="/support" element={<Support />} />
                 <Route path="/system" element={<System />} />
+                <Route path="/system/documents" element={<SystemDocuments />} />
+                <Route path="/system/conversations" element={<SystemConversations />} />
+                <Route path="/system/messages" element={<SystemMessages />} />
+                <Route path="/system/query-logs" element={<SystemQueryLogs />} />
                 <Route path="/users" element={<Users />} />
                 <Route path="/profile" element={<Profile />} />
               </Route>

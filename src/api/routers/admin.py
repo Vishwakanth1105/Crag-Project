@@ -25,8 +25,15 @@ from src.db.models import (
 from src.db.session import get_db
 from src.ingestion import neo4j_indexer, qdrant_indexer
 from src.schemas import (
+    AdminConversationItem,
+    AdminConversationsResponse,
+    AdminDocumentResponse,
     AdminDocumentsResponse,
     AdminIngestionsResponse,
+    AdminMessageItem,
+    AdminMessagesResponse,
+    AdminQueryLogItem,
+    AdminQueryLogsResponse,
     AdminUserDetailResponse,
     AdminUserResponse,
     AdminUsersResponse,
@@ -238,8 +245,29 @@ def admin_documents(
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> AdminDocumentsResponse:
-    documents = db.query(Document).order_by(Document.created_at.desc()).all()
-    return AdminDocumentsResponse(items=[_document_response(doc) for doc in documents])
+    rows = (
+        db.query(Document, User)
+        .join(User, User.id == Document.user_id)
+        .order_by(Document.created_at.desc())
+        .all()
+    )
+    return AdminDocumentsResponse(
+        items=[
+            AdminDocumentResponse(
+                id=document.id,
+                file_name=document.file_name,
+                content_type=document.content_type,
+                size_bytes=document.size_bytes,
+                status=document.status,
+                error=document.error,
+                created_at=document.created_at,
+                user_id=document.user_id,
+                owner_email=owner.email,
+                owner_full_name=owner.full_name,
+            )
+            for document, owner in rows
+        ]
+    )
 
 
 @router.get("/ingestions", response_model=AdminIngestionsResponse)
@@ -249,6 +277,98 @@ def admin_ingestions(
 ) -> AdminIngestionsResponse:
     jobs = db.query(IngestionJob).order_by(IngestionJob.id.desc()).all()
     return AdminIngestionsResponse(items=[_job_response(job) for job in jobs])
+
+
+@router.get("/conversations", response_model=AdminConversationsResponse)
+def admin_conversations(
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> AdminConversationsResponse:
+    rows = (
+        db.query(Conversation, User, func.count(Message.id))
+        .join(User, User.id == Conversation.user_id)
+        .outerjoin(Message, Message.conversation_id == Conversation.id)
+        .group_by(Conversation.id)
+        .order_by(Conversation.updated_at.desc())
+        .all()
+    )
+    return AdminConversationsResponse(
+        items=[
+            AdminConversationItem(
+                id=conversation.id,
+                title=conversation.title,
+                document_id=conversation.document_id,
+                user_id=conversation.user_id,
+                owner_email=owner.email,
+                owner_full_name=owner.full_name,
+                message_count=message_count or 0,
+                created_at=conversation.created_at,
+                updated_at=conversation.updated_at,
+            )
+            for conversation, owner, message_count in rows
+        ]
+    )
+
+
+@router.get("/messages", response_model=AdminMessagesResponse)
+def admin_messages(
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> AdminMessagesResponse:
+    rows = (
+        db.query(Message, User, Conversation)
+        .join(User, User.id == Message.user_id)
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .order_by(Message.created_at.desc())
+        .all()
+    )
+    return AdminMessagesResponse(
+        items=[
+            AdminMessageItem(
+                id=message.id,
+                conversation_id=message.conversation_id,
+                conversation_title=conversation.title,
+                user_id=message.user_id,
+                owner_email=owner.email,
+                role=message.role,
+                content=message.content,
+                confidence_score=message.confidence_score,
+                web_search_used=message.web_search_used,
+                created_at=message.created_at,
+            )
+            for message, owner, conversation in rows
+        ]
+    )
+
+
+@router.get("/query-logs", response_model=AdminQueryLogsResponse)
+def admin_query_logs(
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> AdminQueryLogsResponse:
+    rows = (
+        db.query(QueryLog, User)
+        .join(User, User.id == QueryLog.user_id)
+        .order_by(QueryLog.created_at.desc())
+        .all()
+    )
+    return AdminQueryLogsResponse(
+        items=[
+            AdminQueryLogItem(
+                id=log.id,
+                user_id=log.user_id,
+                owner_email=owner.email,
+                query=log.query,
+                answer=log.answer,
+                confidence_score=log.confidence_score,
+                web_search_used=log.web_search_used,
+                retry_count=log.retry_count,
+                latency_ms=log.latency_ms,
+                created_at=log.created_at,
+            )
+            for log, owner in rows
+        ]
+    )
 
 
 @router.get("/system", response_model=SystemStats)
