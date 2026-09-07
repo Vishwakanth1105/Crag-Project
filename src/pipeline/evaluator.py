@@ -95,7 +95,7 @@ class HeuristicEvaluator:
             content = document.page_content.lower()
             overlap = sum(1 for term in query_terms if term in content)
             score = min(1.0, overlap / max(1, len(query_terms)))
-            binary: Literal["yes", "no"] = "yes" if score >= 0.2 else "no"
+            binary: Literal["yes", "no"] = "yes" if score > 0 else "no"
             document.metadata["grade_binary_score"] = binary
             document.metadata["grade_relevance_score"] = score
             grades.append(

@@ -72,7 +72,24 @@ class HybridRetriever:
 
         if not documents and (vector_error or graph_error):
             raise RetrievalError("Hybrid retrieval failed to return documents")
-        return self._dedupe_documents(documents)
+        merged = self._interleave(documents, vector_documents, graph_documents)
+        return self._dedupe_documents(merged)
+
+    @staticmethod
+    def _interleave(
+        documents: list[Document],
+        vector_documents: list[Document],
+        graph_documents: list[Document],
+    ) -> list[Document]:
+        """Alternate vector and graph hits so neither source is starved by the cap."""
+        merged: list[Document] = []
+        longest = max(len(vector_documents), len(graph_documents))
+        for index in range(longest):
+            if index < len(vector_documents):
+                merged.append(vector_documents[index])
+            if index < len(graph_documents):
+                merged.append(graph_documents[index])
+        return merged if merged else documents
 
     def vector_search(self, query: str, *, document_id: str | None = None) -> list[Document]:
         embeddings = build_embeddings(self.settings)

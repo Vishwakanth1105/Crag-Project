@@ -84,7 +84,7 @@ class Settings(BaseSettings):
 
     vector_top_k: int = Field(default=12, alias="VECTOR_TOP_K")
     graph_top_k: int = Field(default=12, alias="GRAPH_TOP_K")
-    rerank_top_k: int = Field(default=5, alias="RERANK_TOP_K")
+    rerank_top_k: int = Field(default=10, alias="RERANK_TOP_K")
     max_retries: int = Field(default=2, alias="MAX_RETRIES")
     request_timeout_seconds: int = Field(default=30, alias="REQUEST_TIMEOUT_SECONDS")
 
