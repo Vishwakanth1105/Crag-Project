@@ -13,7 +13,7 @@ from pypdf import PdfReader
 from src.config import Settings, get_settings
 from src.exceptions import ParsingError
 
-SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".md"}
+SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".md", ".docx", ".doc"}
 
 
 @dataclass(frozen=True)
@@ -68,6 +68,69 @@ def _load_text(path: Path) -> list[Document]:
     ]
 
 
+def _load_docx(path: Path) -> list[Document]:
+    try:
+        from docx import Document as WordDocument
+    except ImportError as exc:  # pragma: no cover - python-docx is a hard dependency
+        raise ParsingError("DOCX support requires the 'python-docx' package") from exc
+
+    try:
+        word_document = WordDocument(str(path))
+    except Exception as exc:  # pragma: no cover - library specific
+        raise ParsingError(f"Unable to read Word document, it may be corrupted: {path}") from exc
+
+    paragraphs = [paragraph.text for paragraph in word_document.paragraphs]
+    for table in word_document.tables:
+        for row in table.rows:
+            row_text = "\t".join(cell.text for cell in row.cells)
+            if row_text.strip():
+                paragraphs.append(row_text)
+
+    text = "\n".join(part for part in paragraphs if part and part.strip())
+    if not text.strip():
+        return []
+    return [
+        Document(
+            page_content=text,
+            metadata={"source": str(path), "file_name": path.name, "page": None},
+        )
+    ]
+
+
+def _extract_legacy_doc_text(data: bytes) -> str:
+    """Best-effort text extraction from legacy binary Word (.doc) files.
+
+    Word 97-2003 stores the document text in the ``WordDocument`` stream as
+    UTF-16LE, so decoding that runs and keeping readable characters recovers
+    most prose (markup bytes decode into control characters that are dropped).
+    """
+    decoded = data.decode("utf-16-le", errors="ignore")
+    cleaned = "".join(
+        char if char.isprintable() or char in "\n\r\t" else " " for char in decoded
+    )
+    lines = [" ".join(line.split()) for line in cleaned.splitlines() if line.strip()]
+    return "\n".join(lines)
+
+
+def _load_doc(path: Path) -> list[Document]:
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise ParsingError(f"Unable to read Word document: {path}") from exc
+    text = _extract_legacy_doc_text(data)
+    if len(text.split()) < 3:
+        raise ParsingError(
+            "Unable to extract readable text from the Word document (legacy .doc "
+            "files are parsed best-effort; saving the file as .docx is recommended)"
+        )
+    return [
+        Document(
+            page_content=text,
+            metadata={"source": str(path), "file_name": path.name, "page": None},
+        )
+    ]
+
+
 def load_documents(path: str | Path) -> tuple[str, list[Document]]:
     file_path = Path(path).expanduser().resolve()
     if not file_path.exists() or not file_path.is_file():
@@ -80,12 +143,21 @@ def load_documents(path: str | Path) -> tuple[str, list[Document]]:
     except OSError as exc:
         raise ParsingError(f"Unable to hash document: {file_path}") from exc
 
-    documents = (
-        _load_pdf(file_path) if file_path.suffix.lower() == ".pdf" else _load_text(file_path)
-    )
+    documents = _load_documents_by_ext(file_path)
     if not documents:
         raise ParsingError(f"No readable text found in document: {file_path}")
     return document_id, documents
+
+
+def _load_documents_by_ext(file_path: Path) -> list[Document]:
+    suffix = file_path.suffix.lower()
+    if suffix == ".pdf":
+        return _load_pdf(file_path)
+    if suffix == ".docx":
+        return _load_docx(file_path)
+    if suffix == ".doc":
+        return _load_doc(file_path)
+    return _load_text(file_path)
 
 
 def parse_document(path: str | Path, settings: Settings | None = None) -> ParsedDocument:

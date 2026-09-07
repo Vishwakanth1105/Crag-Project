@@ -145,6 +145,17 @@ def _extract_text_fallback(document: Document, settings: Settings) -> str | None
                 return data.decode("utf-8")
             except UnicodeDecodeError:
                 return data.decode("utf-8", errors="ignore")
+        if suffix == ".docx":
+            try:
+                from docx import Document as WordDocument
+            except ImportError:  # pragma: no cover - python-docx is a hard dependency
+                return None
+            word_document = WordDocument(io.BytesIO(data))
+            return "\n".join(paragraph.text for paragraph in word_document.paragraphs)
+        if suffix == ".doc":
+            from src.ingestion.parser import _extract_legacy_doc_text
+
+            return _extract_legacy_doc_text(data) or None
     except Exception:  # pragma: no cover - external service specific
         return None
     return None

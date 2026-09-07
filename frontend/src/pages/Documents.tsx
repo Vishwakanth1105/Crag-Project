@@ -170,13 +170,13 @@ export function Documents() {
               : 'Drop a file here, or click to browse'}
           </p>
           <p className="text-muted-foreground mt-1 text-sm">
-            PDF, TXT, or Markdown · up to 20 MB
+            PDF, Word (DOCX/DOC), TXT, or Markdown · up to 20 MB
           </p>
         </div>
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,.txt,.md"
+          accept=".pdf,.txt,.md,.docx,.doc"
           className="hidden"
           onChange={(event) => onFiles(event.target.files)}
         />
