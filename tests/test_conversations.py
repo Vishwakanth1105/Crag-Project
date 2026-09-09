@@ -305,3 +305,130 @@ def test_create_conversation_rejects_foreign_document(
         headers=alice,
     )
     assert alice_scoped.status_code == 201
+
+
+class _FakeStreamMessage:
+    def __init__(self) -> None:
+        self.id = 99
+        self.conversation_id = 0
+        self.role = "assistant"
+        self.content = "Hello world"
+        self.confidence_score = 0.85
+        self.web_search_used = False
+        self.sources: list[str] = ["sample.md"]
+        self.trace: list[str] = ["grade: 1/1 relevant"]
+        self.retrieval_evidence: list[dict[str, object]] = []
+        self.created_at = "2026-01-01T00:00:00Z"
+
+
+def test_stream_message_emits_sse_events(client: TestClient, monkeypatch) -> None:  # noqa: ANN001
+    def _stub_stream_turn(db, conversation, user, content, *, chat_model=None):  # noqa: ANN001
+        del db, conversation, user, content, chat_model
+        fake = _FakeStreamMessage()
+        fake.conversation_id = 1
+        yield {"type": "delta", "content": "Hello"}
+        yield {"type": "delta", "content": " world"}
+        yield {"type": "done", "message": fake}
+
+    monkeypatch.setattr(
+        "src.api.routers.conversations.stream_conversation_turn", _stub_stream_turn
+    )
+    headers = _register(client, "stream-http@example.com")
+    conversation_id = _conversation(client, headers)
+
+    response = client.post(
+        f"/api/v1/conversations/{conversation_id}/messages/stream",
+        json={"content": "Hello"},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    body = response.text
+    assert 'data: {"type": "delta", "content": "Hello"}' in body
+    assert 'data: {"type": "delta", "content": " world"}' in body
+    assert '"type": "done"' in body
+    assert '"role": "assistant"' in body
+    assert '"content": "Hello world"' in body
+    assert '"confidence_score": 0.85' in body
+
+
+def test_stream_message_persists_from_streamed_tokens(
+    client: TestClient,
+    monkeypatch,
+    db_session_factory,  # noqa: ANN001
+) -> None:
+    def _stub_capture_agent(query, *, document_id=None, capture_generation_only=False) -> dict:  # noqa: ANN001
+        del document_id, capture_generation_only
+        return {
+            "generation": "",
+            "confidence_score": 0.85,
+            "sources": ["sample.md"],
+            "web_search_used": False,
+            "retry_count": 1,
+            "retrieval_trace": ["grade: 1/1 relevant"],
+            "documents": [
+                Document(
+                    page_content="Mars has two moons: Phobos and Deimos.",
+                    metadata={
+                        "document_id": "doc-123",
+                        "file_name": "sample.md",
+                        "score": 0.91,
+                        "retrieval_source": "vector",
+                    },
+                ),
+                Document(
+                    page_content="Graph fact: Mars HAS_MOON Phobos.",
+                    metadata={"document_id": None, "retrieval_source": "graph", "score": 0.5},
+                ),
+            ],
+        }
+
+    class _FakeChatModel:
+        def stream(self, prompt: str):  # noqa: ANN001
+            del prompt
+            yield _FakeChunk("Part one")
+            yield _FakeChunk("…part two")
+
+        def invoke(self, prompt: str):  # noqa: ANN001
+            del prompt
+            return _FakeChunk("Part one…part two")
+
+    class _FakeChunk:
+        def __init__(self, content: str) -> None:
+            self.content = content
+
+    monkeypatch.setattr("src.services.conversations.run_agent", _stub_capture_agent)
+    headers = _register(client, "stream-db@example.com")
+    conversation_id = _conversation(client, headers)
+
+    from src.services.conversations import stream_conversation_turn
+
+    session = db_session_factory()
+    from src.db.models import Conversation, User
+
+    conversation = session.query(Conversation).filter(Conversation.id == conversation_id).one()
+    user = session.query(User).filter(User.email == "stream-db@example.com").one()
+
+    events = list(
+        stream_conversation_turn(session, conversation, user, "Hello", chat_model=_FakeChatModel())
+    )
+    session.close()
+
+    deltas = [event["content"] for event in events if event["type"] == "delta"]
+    assert deltas == ["Part one", "…part two"]
+    done = [event for event in events if event["type"] == "done"][0]
+    assert done["message"].content == "Part one…part two"
+    assert done["message"].confidence_score == 0.85
+    assert done["message"].web_search_used is False
+
+    verify = db_session_factory()
+    try:
+        assert verify.query(Message).count() == 2
+        roles = [message.role for message in verify.query(Message).order_by(Message.id).all()]
+        assert roles == ["user", "assistant"]
+        log = verify.query(QueryLog).one()
+        assert log.retry_count == 1
+        assert log.answer == "Part one…part two"
+        assert log.latency_ms >= 0
+    finally:
+        verify.close()

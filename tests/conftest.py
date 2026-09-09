@@ -144,5 +144,12 @@ def make_offline_agent(documents: list[Document] | None = None) -> NodeDependenc
     )
 
 
-def run_offline(query: str, documents: list[Document] | None = None) -> dict:
-    return run_agent(query, make_offline_agent(documents))
+def run_offline(
+    query: str,
+    documents: list[Document] | None = None,
+    *,
+    capture_generation_only: bool = False,
+) -> dict:
+    return run_agent(
+        query, make_offline_agent(documents), capture_generation_only=capture_generation_only
+    )

@@ -88,6 +88,12 @@ class Settings(BaseSettings):
     max_retries: int = Field(default=2, alias="MAX_RETRIES")
     request_timeout_seconds: int = Field(default=30, alias="REQUEST_TIMEOUT_SECONDS")
 
+    # Generation tuning: the local 2B model on CPU is the latency bottleneck,
+    # so context is trimmed, the KV cache is kept small, and output is capped.
+    generation_num_ctx: int = Field(default=4096, alias="GENERATION_NUM_CTX")
+    max_output_tokens: int = Field(default=700, alias="MAX_OUTPUT_TOKENS")
+    max_context_chars: int = Field(default=500, alias="MAX_CONTEXT_CHARS")
+
     min_relevant_documents: int = Field(default=2, alias="MIN_RELEVANT_DOCUMENTS")
     min_average_relevance: float = Field(default=0.55, alias="MIN_AVERAGE_RELEVANCE")
     min_triple_confidence: float = Field(default=0.5, alias="MIN_TRIPLE_CONFIDENCE")
@@ -95,7 +101,14 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
     @field_validator(
-        "parent_chunk_size", "child_chunk_size", "vector_top_k", "graph_top_k", "rerank_top_k"
+        "parent_chunk_size",
+        "child_chunk_size",
+        "vector_top_k",
+        "graph_top_k",
+        "rerank_top_k",
+        "generation_num_ctx",
+        "max_output_tokens",
+        "max_context_chars",
     )
     @classmethod
     def must_be_positive(cls, value: int) -> int:

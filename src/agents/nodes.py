@@ -176,44 +176,76 @@ def _empty_docs(state: AgentState) -> AgentState:
     return state
 
 
-def generate(state: AgentState, deps: NodeDependencies) -> AgentState:
+NO_CONTEXT_MESSAGE = (
+    "I could not find enough relevant context to answer this question, "
+    "and web search was unavailable."
+)
+
+
+def generate(
+    state: AgentState,
+    deps: NodeDependencies,
+    *,
+    capture_only: bool = False,
+) -> AgentState:
     query = state.get("query") or ""
     documents = state.get("documents") or []
+    if capture_only:
+        # Streaming path: skip the (slow) model call here so the API layer can
+        # emit tokens as they arrive; keep the metadata steps identical.
+        state["generation"] = ""
+        state["sources"] = _collect_sources(state)
+        state["confidence_score"] = _final_confidence(state)
+        return state
     state["generation"] = _build_answer(query, documents, deps)
     state["sources"] = _collect_sources(state)
     state["confidence_score"] = _final_confidence(state)
     return state
 
 
-def _build_answer(query: str, documents: list[Document], deps: NodeDependencies) -> str:
-    if not documents:
-        return (
-            "I could not find enough relevant context to answer this question, "
-            "and web search was unavailable."
-        )
+def build_answer_prompt(query: str, documents: list[Document], settings: Settings) -> str:
+    """Build the generation prompt with per-chunk context trimming.
 
-    prompt = (
+    Trimming caps the number of prompt tokens the local model must evaluate,
+    which dominates end-to-end latency on CPU-only hosts.
+    """
+    limit = settings.max_context_chars
+
+    def _trim(content: str) -> str:
+        text = content.strip()
+        if len(text) <= limit:
+            return text
+        return f"{text[:limit].rstrip()}…"
+
+    return (
         "Answer the user question using only the provided context. "
         "If the context is insufficient, say so explicitly and do not "
         "fabricate facts. Cite sources by their identifiers when known.\n\n"
         f"Question: {query}\n\nContext:\n"
-        + "\n\n".join(f"[{i + 1}] {doc.page_content}" for i, doc in enumerate(documents))
+        + "\n\n".join(f"[{i + 1}] {_trim(doc.page_content)}" for i, doc in enumerate(documents))
     )
 
+
+def _build_answer(query: str, documents: list[Document], deps: NodeDependencies) -> str:
+    if not documents:
+        return NO_CONTEXT_MESSAGE
+
     if deps.is_heuristic:
-        return _heuristic_answer(query, documents)
+        return heuristic_answer(query, documents)
 
     try:
-        llm = build_chat_model(deps.settings, num_ctx=6144)
-        return _extract_response_text(llm.invoke(prompt).content)
-    except ConfigurationError:
-        return _heuristic_answer(query, documents)
-    except Exception:
-        return (
-            "Generation failed, but the following context was retrieved. "
-            "Please verify the answer against the provided sources.\n"
-            + "\n\n".join(doc.page_content[:500] for doc in documents[:3])
+        llm = build_chat_model(
+            deps.settings,
+            num_ctx=deps.settings.generation_num_ctx,
+            num_predict=deps.settings.max_output_tokens,
         )
+        return _extract_response_text(
+            llm.invoke(build_answer_prompt(query, documents, deps.settings)).content
+        )
+    except ConfigurationError:
+        return heuristic_answer(query, documents)
+    except Exception:
+        return generation_failed_answer(documents)
 
 
 def _extract_response_text(content: object) -> str:
@@ -233,10 +265,18 @@ def _extract_response_text(content: object) -> str:
     return str(content)
 
 
-def _heuristic_answer(query: str, documents: list[Document]) -> str:
+def heuristic_answer(query: str, documents: list[Document]) -> str:
     del query
     return "Based on the retrieved context:\n\n" + "\n\n".join(
         f"- {doc.page_content[:300]}" for doc in documents[:5]
+    )
+
+
+def generation_failed_answer(documents: list[Document]) -> str:
+    return (
+        "Generation failed, but the following context was retrieved. "
+        "Please verify the answer against the provided sources.\n"
+        + "\n\n".join(doc.page_content[:500] for doc in documents[:3])
     )
 
 

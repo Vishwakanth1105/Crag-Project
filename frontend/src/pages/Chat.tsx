@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AxiosError } from 'axios'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
@@ -18,7 +17,7 @@ import {
   X,
   Cpu,
 } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, streamChat } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
@@ -80,6 +79,7 @@ export function Chat() {
   const [activeId, setActiveId] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
   const [viewerOpen, setViewerOpen] = useState(false)
+  const [streamText, setStreamText] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   // Open the pinned-document viewer when arriving via /chat?document=<id>.
@@ -194,19 +194,41 @@ export function Chat() {
 
   const sendMessage = useMutation({
     mutationFn: async (content: string) => {
-      const { data } = await api.post<Message>(
-        `/conversations/${activeId}/messages`,
-        { content },
+      if (activeId === null) return
+      queryClient.setQueryData<Message[]>(
+        ['messages', activeId],
+        (old) => [
+          ...(old ?? []),
+          {
+            id: -Date.now(),
+            conversation_id: activeId,
+            role: 'user' as const,
+            content,
+            confidence_score: null,
+            web_search_used: false,
+            sources: [],
+            trace: [],
+            retrieval_evidence: [],
+            created_at: new Date().toISOString(),
+          },
+        ],
       )
-      return data
+      setStreamText('')
+      await streamChat(activeId, content, (event) => {
+        if (event.type === 'delta') {
+          setStreamText((prev) => (prev === null ? '' : prev) + event.content)
+        } else if (event.type === 'error') {
+          toast.error(event.detail ?? 'Message failed to send')
+          setStreamText(null)
+        } else {
+          setStreamText(null)
+          queryClient.invalidateQueries({ queryKey: ['messages', activeId] })
+          queryClient.invalidateQueries({ queryKey: ['conversations'] })
+        }
+      })
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['messages', activeId] })
-      queryClient.invalidateQueries({ queryKey: ['conversations'] })
-    },
-    onError: (err) => {
-      const detail = err instanceof AxiosError ? err.response?.data?.detail : undefined
-      toast.error(typeof detail === 'string' ? detail : 'Message failed to send')
+    onError: () => {
+      setStreamText(null)
     },
   })
 
@@ -220,7 +242,7 @@ export function Chat() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messageList.length, sendMessage.isPending])
+  }, [messageList.length, sendMessage.isPending, streamText])
 
   return (
     <div
@@ -300,7 +322,11 @@ export function Chat() {
               </p>
               <p className="text-muted-foreground flex items-center gap-1 text-xs">
                 <span className="bg-emerald-500 size-1.5 rounded-full" />
-                {sendMessage.isPending ? 'Thinking…' : 'Ready to answer'}
+                {sendMessage.isPending
+                  ? streamText
+                    ? 'Answering…'
+                    : 'Thinking…'
+                  : 'Ready to answer'}
               </p>
             </div>
           </div>
@@ -460,11 +486,20 @@ export function Chat() {
               <span className="bg-accent text-accent-foreground flex size-8 shrink-0 items-center justify-center rounded-full">
                 <Bot className="size-4" />
               </span>
-              <div className="bg-muted/70 flex items-center gap-1.5 rounded-2xl rounded-tl-sm px-4 py-3.5">
-                <span className="bg-muted-foreground/50 size-2 animate-bounce rounded-full [animation-delay:0ms]" />
-                <span className="bg-muted-foreground/50 size-2 animate-bounce rounded-full [animation-delay:150ms]" />
-                <span className="bg-muted-foreground/50 size-2 animate-bounce rounded-full [animation-delay:300ms]" />
-              </div>
+              {streamText ? (
+                <div className="bg-muted/70 rounded-2xl rounded-tl-sm px-4 py-3">
+                  <p className="text-sm whitespace-pre-wrap">
+                    {streamText}
+                    <span className="bg-foreground/70 ml-0.5 inline-block h-3.5 w-0.5 animate-pulse align-middle" />
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-muted/70 flex items-center gap-1.5 rounded-2xl rounded-tl-sm px-4 py-3.5">
+                  <span className="bg-muted-foreground/50 size-2 animate-bounce rounded-full [animation-delay:0ms]" />
+                  <span className="bg-muted-foreground/50 size-2 animate-bounce rounded-full [animation-delay:150ms]" />
+                  <span className="bg-muted-foreground/50 size-2 animate-bounce rounded-full [animation-delay:300ms]" />
+                </div>
+              )}
             </div>
           )}
           <div ref={bottomRef} />

@@ -122,3 +122,30 @@ def test_retrieval_is_scoped_to_document() -> None:
     retriever.document_id = None
     run_agent("What is a hook?", deps)
     assert retriever.document_id is None
+
+
+def test_capture_generation_only_skips_model_call(
+    relevant_documents: list[Document],
+) -> None:
+    state = run_offline("What does LangGraph do?", relevant_documents, capture_generation_only=True)
+
+    assert state["generation"] == ""
+    assert state["documents"]
+    assert state["sources"]
+    assert state["confidence_score"] > 0.0
+    assert any("grade:" in entry for entry in state["retrieval_trace"])
+
+
+def test_build_answer_prompt_trims_context_chunks() -> None:
+    from src.agents.nodes import build_answer_prompt
+    from src.config import Settings
+
+    documents = [Document(page_content="x" * 500, metadata={})]
+    settings = Settings(max_context_chars=25)
+    prompt = build_answer_prompt("What is this?", documents, settings)
+
+    assert "Question: What is this?" in prompt
+    assert "[1] " in prompt
+    trimmed = prompt.split("[1] ", 1)[1]
+    assert len(trimmed.strip("…")) == 25
+    assert "x" * 500 not in prompt

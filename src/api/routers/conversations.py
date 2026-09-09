@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from src.auth.deps import get_current_user
@@ -19,7 +23,7 @@ from src.schemas import (
     SendMessageRequest,
     UpdateConversationRequest,
 )
-from src.services.conversations import run_conversation_turn
+from src.services.conversations import run_conversation_turn, stream_conversation_turn
 
 router = APIRouter(prefix="/conversations")
 
@@ -158,3 +162,36 @@ def send_message(
     conversation = _get_owned_conversation(db, conversation_id, user)
     assistant_message = run_conversation_turn(db, conversation, user, payload.content)
     return _message_response(assistant_message)
+
+
+@router.post("/{conversation_id}/messages/stream")
+def send_message_stream(
+    conversation_id: int,
+    payload: SendMessageRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Same as ``send_message`` but answers are streamed as Server-Sent Events.
+
+    Emits ``data: {"type": "delta", "content": ...}`` frames followed by a
+    final ``data: {"type": "done", "message": {...}}`` frame (or an error
+    frame when the model fails mid-stream).
+    """
+    conversation = _get_owned_conversation(db, conversation_id, user)
+
+    def event_stream() -> Iterator[str]:
+        for event in stream_conversation_turn(db, conversation, user, payload.content):
+            payload_out: dict[str, Any] = event
+            if event.get("type") == "done" and event.get("message") is not None:
+                serialized = _message_response(event["message"]).model_dump(mode="json")
+                payload_out = {**event, "message": serialized}
+            yield f"data: {json.dumps(payload_out)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )

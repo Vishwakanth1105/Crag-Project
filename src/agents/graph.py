@@ -23,13 +23,24 @@ from src.agents.state import AgentState
 
 def build_agent_graph(
     deps: NodeDependencies | None = None,
+    *,
+    capture_generation_only: bool = False,
 ) -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
     """Assemble and return the compiled CRAG state machine.
 
     ``deps`` may be injected for testing; otherwise a default dependency set
     wired against the configured Qdrant/Neo4j instances is created lazily.
+
+    When ``capture_generation_only`` is set, the generate node skips the model
+    call (leaving ``generation`` empty) so callers can stream the answer tokens
+    themselves while reusing the full retrieval workflow.
     """
     dependencies = deps or NodeDependencies()
+
+    def generate_node(state: AgentState) -> AgentState:
+        if capture_generation_only:
+            return generate(state, dependencies, capture_only=True)
+        return generate(state, dependencies)
 
     builder = StateGraph(AgentState)
 
@@ -41,7 +52,7 @@ def build_agent_graph(
     builder.add_node("grade_documents", bind_deps(grade_documents, dependencies))  # type: ignore[call-overload]
     builder.add_node("rewrite_query", bind_deps(rewrite_query, dependencies))  # type: ignore[call-overload]
     builder.add_node("web_search", bind_deps(web_search, dependencies))  # type: ignore[call-overload]
-    builder.add_node("generate", bind_deps(generate, dependencies))  # type: ignore[call-overload]
+    builder.add_node("generate", generate_node)
 
     builder.add_edge(START, "validate_query")
     builder.add_conditional_edges(
@@ -72,9 +83,15 @@ def run_agent(
     deps: NodeDependencies | None = None,
     *,
     document_id: str | None = None,
+    capture_generation_only: bool = False,
 ) -> dict:
-    """Run the full CRAG workflow and return the populated agent state."""
-    graph = build_agent_graph(deps)
+    """Run the full CRAG workflow and return the populated agent state.
+
+    With ``capture_generation_only=True`` the model call is skipped and
+    ``generation`` is left empty; ``documents``, ``sources``, and the final
+    ``confidence_score`` remain populated for streaming callers.
+    """
+    graph = build_agent_graph(deps, capture_generation_only=capture_generation_only)
     result = graph.invoke(
         AgentState(
             query=query,

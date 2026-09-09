@@ -15,8 +15,12 @@ def build_chat_model(
     settings: Settings,
     *,
     num_ctx: int = 4096,
+    num_predict: int | None = None,
 ) -> BaseChatModel:
     """Return the configured chat model.
+
+    ``num_predict`` caps the number of tokens the model may generate, which
+    bounds worst-case latency on slow local hardware.
 
     Raises ``ConfigurationError`` when the Gemini provider is selected without
     an API key. Local mode never requires external credentials.
@@ -29,6 +33,7 @@ def build_chat_model(
             base_url=settings.ollama_base_url,
             temperature=0,
             num_ctx=num_ctx,
+            num_predict=num_predict,
             client_kwargs={"timeout": settings.local_request_timeout_seconds},
         )
 
@@ -38,5 +43,6 @@ def build_chat_model(
         model=settings.generation_model,
         api_key=settings.require_gemini(),
         temperature=0,
+        max_output_tokens=num_predict,
         timeout=settings.request_timeout_seconds,
     )
